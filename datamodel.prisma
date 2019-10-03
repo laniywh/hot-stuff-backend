@@ -6,6 +6,8 @@ type User {
 
 type Item {
   id: ID! @id
+  createdAt: DateTime! @createdAt
+  updatedAt: DateTime! @updatedAt
   title: String!
   description: String!
   image: String
