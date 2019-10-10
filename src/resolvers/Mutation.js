@@ -3,14 +3,23 @@ const jwt = require('jsonwebtoken');
 const { randomBytes } = require('crypto');
 const { promisify } = require('util'); // node library: turn call back based function into promise based function
 const { transport, makeANiceEmail } = require('../mail');
+const { hasPermission } = require('../utils');
 
 const Mutations = {
   async createItem(parent, args, ctx, info) {
-    // TODO: check if they are logged in
+    if (!ctx.request.userId) {
+      throw new Error('You must be logged in to do that!');
+    }
 
     const item = await ctx.db.mutation.createItem(
       {
         data: {
+          // Prisma: create relationship between the Item and the User
+          user: {
+            connect: {
+              id: ctx.request.userId,
+            },
+          },
           ...args,
         },
       },
@@ -37,9 +46,18 @@ const Mutations = {
   async deleteItem(parent, args, ctx, info) {
     const where = { id: args.id };
     // find the item
-    const item = await ctx.db.query.item({ where }, `{id title}`);
-    // check if they own the item, or have the permissions
-    // TODO
+    const item = await ctx.db.query.item({ where }, `{id title user {id}}`);
+    // check if they logged in, own the item, or have the permissions
+    if (!ctx.request.userId) {
+      throw new Error('You must login to do that!');
+    }
+    const ownsItem = item.user.id === ctx.request.userId;
+    const hasPermissions = ctx.request.user.permissions.some(permission =>
+      ['ADMIN', 'ITEMDELETE'].includes(permission)
+    );
+    if (!(ownsItem || hasPermission)) {
+      throw new Error("You don't have permission to do that!");
+    }
     // delete it
     return ctx.db.mutation.deleteItem({ where }, info);
   },
@@ -155,6 +173,32 @@ const Mutations = {
       maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year cookie
     });
     // 8. return new user
+    return updatedUser;
+  },
+
+  async updatePermissions(parent, args, ctx, info) {
+    // 1. check if user logged in
+    if (!ctx.request.userId) {
+      throw new Error('You must log in to do this!');
+    }
+    // 2. query the current user
+    // const user = await ctx.db.query.user({ where: { id: ctx.request.userId } }, info);
+    // 3. check if user has permission to do this
+    hasPermission(ctx.request.user, ['ADMIN', 'PERMISSIONUPDATE']);
+    // 4. update permissions
+    console.log(args);
+    const updatedUser = await ctx.db.mutation.updateUser(
+      {
+        where: { id: args.userId },
+        data: {
+          permissions: {
+            set: args.permissions,
+          },
+        },
+      },
+      info
+    );
+    console.log('updated user: ', updatedUser);
     return updatedUser;
   },
 };
