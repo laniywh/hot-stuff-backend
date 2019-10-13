@@ -23,7 +23,7 @@ const Mutations = {
           ...args,
         },
       },
-      info
+      info // pass the original query
     );
 
     return item;
@@ -46,7 +46,7 @@ const Mutations = {
   async deleteItem(parent, args, ctx, info) {
     const where = { id: args.id };
     // find the item
-    const item = await ctx.db.query.item({ where }, `{id title user {id}}`);
+    const item = await ctx.db.query.item({ where }, `{id title user {id}}`); // instead of info, pass in manual query
     // check if they logged in, own the item, or have the permissions
     if (!ctx.request.userId) {
       throw new Error('You must login to do that!');
@@ -186,7 +186,6 @@ const Mutations = {
     // 3. check if user has permission to do this
     hasPermission(ctx.request.user, ['ADMIN', 'PERMISSIONUPDATE']);
     // 4. update permissions
-    console.log(args);
     const updatedUser = await ctx.db.mutation.updateUser(
       {
         where: { id: args.userId },
@@ -198,7 +197,6 @@ const Mutations = {
       },
       info
     );
-    console.log('updated user: ', updatedUser);
     return updatedUser;
   },
 
@@ -245,6 +243,29 @@ const Mutations = {
             connect: { id: args.id },
           },
         },
+      },
+      info
+    );
+  },
+
+  async removeFromCart(parent, args, ctx, info) {
+    // 1. find cart item
+    const cartItem = await ctx.db.query.cartItem(
+      {
+        where: { id: args.id },
+      },
+      `{user {id}}`
+    );
+    // 1.5 make sure cart item exist
+    if (!cartItem) throw new Error('No Cart Item Found!');
+    // 2. make sure they own the cart item
+    if (cartItem.user.id !== ctx.request.userId) {
+      throw new Error("You don't own this cart item!");
+    }
+    // 3. delete that cart item
+    return ctx.db.mutation.deleteCartItem(
+      {
+        where: { id: args.id },
       },
       info
     );
