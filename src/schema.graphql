@@ -40,6 +40,8 @@ type Query {
   user(where: UserWhereUniqueInput!): User
   me: User
   users: [User]!
+  order(id: ID!): Order
+  orders(orderBy: OrderOrderByInput): [Order]!
 }
 
 # redefine User for front end (remove sensitive data)
