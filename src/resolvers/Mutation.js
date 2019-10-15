@@ -4,6 +4,7 @@ const { randomBytes } = require('crypto');
 const { promisify } = require('util'); // node library: turn call back based function into promise based function
 const { transport, makeANiceEmail } = require('../mail');
 const { hasPermission } = require('../utils');
+const stripe = require('../stripe');
 
 const Mutations = {
   async createItem(parent, args, ctx, info) {
@@ -269,6 +270,73 @@ const Mutations = {
       },
       info
     );
+  },
+
+  async createOrder(parent, args, ctx, info) {
+    // 1. query current user and make sure they are signed in
+    const { userId } = ctx.request;
+    if (!userId) throw new Error('You must signed in to complete this order.');
+    const user = await ctx.db.query.user(
+      { where: { id: userId } },
+      `{
+        id
+        name
+        email
+        cart {
+          id
+          quantity
+          item {
+            title
+            price
+            id
+            description
+            image
+            largeImage
+          }
+        }
+      }`
+    );
+    // 2. recalculate the total for the price
+    const amount = user.cart.reduce((tally, cartItem) => tally + cartItem.item.price, 0);
+    console.log('charge $', amount);
+    // 3. create the stripe charge (turn token into money!)
+    const charge = await stripe.charges.create({
+      amount,
+      currency: 'USD',
+      source: args.token,
+    });
+    // 4. convert cartItems to orderItems
+    const orderItems = user.cart.map(cartItem => {
+      const orderItem = {
+        ...cartItem.item,
+        quantity: cartItem.quantity,
+        user: {
+          connect: {
+            id: userId,
+          },
+        },
+      };
+      delete orderItem.id;
+      return orderItem;
+    });
+    // 5. create the order
+    const order = await ctx.db.mutation.createOrder({
+      data: {
+        items: { create: orderItems }, // also crate orderItems here
+        total: charge.amount,
+        user: { connect: { id: userId } },
+        charge: charge.id,
+      },
+    });
+    // 6. clear user cart, delete cartItems
+    const cartItemIds = user.cart.map(cartItem => cartItem.id);
+    await ctx.db.mutation.deleteManyCartItems({
+      where: {
+        id_in: cartItemIds,
+      },
+    });
+    // 7. return order to client
+    return order;
   },
 };
 
